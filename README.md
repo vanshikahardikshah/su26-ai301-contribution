@@ -54,9 +54,17 @@ I cloned my fork of the Sorbet repository and created a working branch for issue
 Fork: https://github.com/vanshikahardikshah/sorbet
 Working branch: https://github.com/vanshikahardikshah/sorbet/tree/fix-issue-7399
 
-During setup, I noticed that Sorbet uses `master` as the default branch instead of `main`, so I switched to `master` before creating my working branch. I also had to authenticate GitHub CLI in the browser before I could successfully publish my branch.
+During setup, I noticed that Sorbet uses `master` as the default branch instead of `main`, so I switched to `master` before creating my working branch. I also had to authenticate GitHub CLI through the browser before I could successfully push my branch.
 
-I started by reviewing the repository structure and looking for documentation such as the README, contributing information, and relevant project docs. Since this issue is about improving the error message for misuse of `T.class_of(SomeModule)`, I searched for terms related to the issue, including `T.class_of`, `mixes_in_class_methods`, `ClassMethods`, `Method does not exist`, and error code `7003`.
+To build Sorbet locally, I first tried running:
+
+`bundle exec srb tc issue_7399_repro.rb`
+
+That did not work because the repository root did not have a `Gemfile` or `.bundle` directory. I then tried building Sorbet with Bazel, but Bazel was not installed. I installed Bazelisk using Homebrew, confirmed Bazel was available, and then successfully built Sorbet with:
+
+`bazel build //main:sorbet --config=dbg`
+
+After the build completed successfully, I ran the local Sorbet binary on my reproduction file.
 
 #### Steps to Reproduce
 
@@ -76,46 +84,59 @@ I started by reviewing the repository structure and looking for documentation su
 
    `git checkout -b fix-issue-7399`
 
-5. Publish the branch:
+5. Create a reproduction file named `issue_7399_repro.rb`.
 
-   `git push origin fix-issue-7399`
+6. Add the sample code from issue #7399. The code defines `SomeModule`, defines `SomeModule::ClassMethods`, uses `mixes_in_class_methods(ClassMethods)`, and then calls `klass.foo` where `klass` is typed as `T.class_of(SomeModule)`.
 
-6. Create a reproduction Ruby file using the sample code from issue #7399. The file defines `SomeModule`, defines `SomeModule::ClassMethods`, uses `mixes_in_class_methods(ClassMethods)`, and then calls `klass.foo` where `klass` is typed as `T.class_of(SomeModule)`.
+7. Install Bazelisk if needed:
 
-7. Run Sorbet on the reproduction file.
+   `brew install bazelisk`
 
-8. Expected behavior: Sorbet should give a clearer error message explaining that this may be a misuse of `T.class_of(SomeModule)` when trying to call methods defined through `mixes_in_class_methods`.
+8. Build Sorbet locally:
 
-9. Actual behavior: Sorbet reports that `foo` does not exist on `T.class_of(SomeModule)`, but the message does not explain the likely reason or suggest a clearer type to use.
+   `bazel build //main:sorbet --config=dbg`
+
+9. Run the local Sorbet binary on the reproduction file:
+
+   `./bazel-bin/main/sorbet --silence-dev-message issue_7399_repro.rb`
+
+10. Actual output:
+
+`Method foo does not exist on T.class_of(SomeModule)`
+
+11. Expected behavior:
+
+Sorbet should still report the method-missing error, but it should include clearer context explaining that this may be a misuse of `T.class_of(SomeModule)` when trying to call methods defined through `mixes_in_class_methods`.
 
 ### Reproduction Evidence
 
 Issue link: https://github.com/sorbet/sorbet/issues/7399
 Working branch: https://github.com/vanshikahardikshah/sorbet/tree/fix-issue-7399
+Reproduction file: https://github.com/vanshikahardikshah/sorbet/blob/fix-issue-7399/issue_7399_repro.rb
 
-The issue’s observed output shows Sorbet currently reports:
+I successfully reproduced the current behavior locally. Running Sorbet on `issue_7399_repro.rb` produced this output:
 
-`Method foo does not exist on T.class_of(SomeModule)`
+`issue_7399_repro.rb:18: Method foo does not exist on T.class_of(SomeModule) https://srb.help/7003`
 
-This confirms the current behavior that needs a clearer diagnostic message.
+This matches the behavior described in issue #7399.
 
 ### Solution Approach
 
 #### Understand
 
-The issue is not that Sorbet completely misses the error. Sorbet correctly reports that `foo` does not exist on `T.class_of(SomeModule)`. The problem is that the error message is not helpful enough for this specific situation. When a module uses `mixes_in_class_methods`, a developer may expect methods from `SomeModule::ClassMethods` to be available, but `T.class_of(SomeModule)` does not communicate that correctly.
+The issue is not that Sorbet completely misses the error. Sorbet correctly reports that `foo` does not exist on `T.class_of(SomeModule)`. The problem is that the message is not helpful enough for this specific situation. When a module uses `mixes_in_class_methods`, a developer may expect methods from `SomeModule::ClassMethods` to be available, but `T.class_of(SomeModule)` does not communicate that correctly.
 
 #### Match
 
-I will look for existing Sorbet diagnostics that add extra context or suggestions to method-missing errors. I will also look for tests related to error code `7003`, method lookup failures, `T.class_of`, and `mixes_in_class_methods` so that my change follows Sorbet’s existing style.
+I will look for existing Sorbet diagnostics that add extra context or suggestions to method-missing errors. I will also search for tests related to error code `7003`, method lookup failures, `T.class_of`, and `mixes_in_class_methods` so that my change follows Sorbet’s existing testing and messaging style.
 
 #### Plan
 
 1. Find where Sorbet generates the “Method does not exist” diagnostic for error code `7003`.
 2. Trace how Sorbet handles receiver types like `T.class_of(SomeModule)`.
 3. Check whether the module has class methods mixed in through `mixes_in_class_methods`.
-4. Add a clearer message for this specific case, explaining that the developer may need to use the module’s `ClassMethods` type or a more appropriate combined type.
-5. Be careful with the exact suggested type because the issue discussion mentions that the original suggested wording may need adjustment.
+4. Add a clearer diagnostic message for this specific case.
+5. Be careful with the exact suggestion because the issue discussion mentions that the original suggested type may need adjustment.
 6. Add or update a test case using the reproduction code from issue #7399.
 7. Run the relevant Sorbet tests and confirm the clearer message appears without breaking existing behavior.
 
