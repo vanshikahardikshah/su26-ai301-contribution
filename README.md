@@ -147,3 +147,59 @@ Before opening a pull request, I will review Sorbet’s contribution guidelines 
 #### Evaluate
 
 I will verify the fix by rerunning the reproduction case and confirming that Sorbet still catches the missing method error, but now gives more useful guidance. I will also run the relevant automated tests for the diagnostic area.
+
+## Phase III: Build
+
+### Implementation Notes
+
+Implemented a targeted diagnostic improvement for Sorbet issue #7399.
+
+The change is in `core/types/calls.cc`, where Sorbet creates “Method does not exist” diagnostics. When Sorbet encounters a missing method on `T.class_of(SomeModule)`, it now checks whether `SomeModule` uses `mixes_in_class_methods` and whether the missing method exists in one of those class-method modules.
+
+When that pattern is detected, Sorbet keeps the original error but adds a helpful note explaining where the method is defined and suggests the more accurate type form:
+
+`T.all(T::Class[SomeModule], SomeModule::ClassMethods)`
+
+### Code Changes
+
+Active branch:
+https://github.com/vanshikahardikshah/sorbet/tree/fix-issue-7399
+
+Key commits:
+
+* `089799e9f` — Add reproduction case for issue 7399
+* `af1946b2d` — Improve class method mixin diagnostic
+* `2f525c7e9` — Add test for class method mixin diagnostic
+
+Files changed:
+
+* `core/types/calls.cc`
+* `test/testdata/infer/generics/class_of_mixes_in_class_methods.rb`
+* `issue_7399_repro.rb`
+
+### Testing Strategy
+
+I built Sorbet locally with:
+
+`bazel build //main:sorbet --config=dbg`
+
+The build completed successfully.
+
+I then ran Sorbet against the new regression test file:
+
+`./bazel-bin/main/sorbet --silence-dev-message test/testdata/infer/generics/class_of_mixes_in_class_methods.rb`
+
+The test produced the expected original error and the new contextual note:
+
+`foo is defined in SomeModule::ClassMethods, which is mixed in through mixes_in_class_methods on SomeModule.`
+
+It also suggested:
+
+`T.all(T::Class[SomeModule], SomeModule::ClassMethods)`
+
+### Challenges Faced
+
+The main challenge was understanding how Sorbet tracks modules declared through `mixes_in_class_methods`. I traced the implementation through `resolver/resolver.cc` and `resolver/GlobalPass.cc`, which showed that Sorbet stores the class-method modules internally and mixes them into the singleton class of classes that include the interface.
+
+I also initially needed to set up Bazelisk because Bazel was not installed locally. After that setup, Sorbet built successfully and the focused regression test confirmed the change.
+
