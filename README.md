@@ -203,3 +203,77 @@ The main challenge was understanding how Sorbet tracks modules declared through 
 
 I also initially needed to set up Bazelisk because Bazel was not installed locally. After that setup, Sorbet built successfully and the focused regression test confirmed the change.
 
+**Phase IV: Submit & Iterate**
+
+Pull Request Submission
+
+I opened a pull request to the upstream Sorbet repository for issue #7399.
+
+Pull request link: https://github.com/sorbet/sorbet/pull/10415
+
+Pull request title:
+
+Improve diagnostic for T.class_of with mixes_in_class_methods
+
+The pull request updates Sorbet’s missing-method diagnostic for cases where T.class_of(SomeModule) is used with a module that provides class methods through mixes_in_class_methods.
+
+Instead of only showing that the method does not exist on T.class_of(SomeModule), Sorbet now adds context explaining that the method is defined in the module’s ClassMethods module and was mixed in through mixes_in_class_methods.
+
+The new diagnostic also suggests using the more accurate intersection type:
+
+T.all(T::Class[SomeModule], SomeModule::ClassMethods)
+
+Pull Request Summary
+
+This contribution improves developer guidance without changing Sorbet’s underlying type-checking behavior.
+
+Sorbet still correctly reports the original error:
+
+Method foo does not exist on T.class_of(SomeModule)
+
+However, it now gives additional context such as:
+
+foo is defined in SomeModule::ClassMethods, which is mixed in through mixes_in_class_methods on SomeModule.
+
+It also suggests the correct type representation for this pattern.
+
+Files Included in the Pull Request
+
+* core/types/calls.cc
+* test/testdata/infer/generics/class_of_mixes_in_class_methods.rb
+* issue_7399_repro.rb
+
+Final Testing
+
+Before submitting the pull request, I verified the implementation through both focused and full testing.
+
+Focused regression test:
+
+bazel test //test:test_PosTests/testdata/infer/generics/class_of_mixes_in_class_methods
+
+Result:
+
+Executed 1 out of 1 test: 1 test passes.
+
+Full Sorbet test suite:
+
+bazel test //test:test
+
+Result:
+
+Executed 2227 out of 2227 tests: 2227 tests pass.
+
+I also manually ran the local Sorbet binary against the regression file and confirmed that the new contextual diagnostic appears with the suggested intersection type.
+
+Maintainer Feedback
+
+No maintainer feedback has been received yet.
+
+Next Steps
+
+I will monitor the pull request for feedback from Sorbet maintainers. If reviewers request changes, I will update the implementation, run the relevant tests again, push the follow-up commit, and respond professionally on the pull request.
+
+Status
+
+Awaiting review
+
